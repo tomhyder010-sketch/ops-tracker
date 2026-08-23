@@ -38,7 +38,11 @@ var CALL_HEADERS = [
   "temperature",
   // Whether the prospect was actually qualified on the call — feeds
   // "Cost per Qualified Call" on the Ad Campaigns tab.
-  "qualified"
+  "qualified",
+  // Raw utm_content — Tom's ad names ("AD 1 - 07/08/26 - Wasting Leads")
+  // live here, matching Meta's ad_name field exactly. Join key against
+  // Ads.ad_name, same idea as meta_campaign_name/campaign_name.
+  "meta_ad_name"
 ];
 
 var CALL_NUMBER_FIELDS = ["value"];
@@ -84,6 +88,18 @@ var CAMPAIGN_NUMBER_FIELDS = [
   "video_plays", "video_p25", "video_p50", "video_p75", "video_p95", "video_p100",
   "thruplays", "video_avg_watch_seconds", "hook_rate", "hold_rate_50"
 ];
+
+// One row per active ad (creative), same shape as Campaigns but keyed by
+// ad_id (unique; ad_name alone isn't guaranteed unique across campaigns).
+var AD_HEADERS = [
+  "ad_id", "ad_name", "campaign_name", "spend", "impressions", "reach", "clicks", "link_clicks",
+  "ctr", "link_ctr", "cpm", "cost_per_link_click",
+  "leads", "cost_per_lead", "landing_page_views",
+  "video_plays", "video_p25", "video_p50", "video_p75", "video_p95", "video_p100",
+  "thruplays", "video_avg_watch_seconds", "hook_rate", "hold_rate_50",
+  "updated_at"
+];
+var AD_NUMBER_FIELDS = CAMPAIGN_NUMBER_FIELDS;
 
 var META_AD_ACCOUNT_ID = "act_537574055821730"; // "Systemised Scaling" — not a secret, just an id
 
@@ -251,12 +267,14 @@ function doGet(e) {
   var callsSheet = getSheet_("Calls", CALL_HEADERS);
   var clientsSheet = getSheet_("Clients", CLIENT_HEADERS);
   var campaignsSheet = getSheet_("Campaigns", CAMPAIGN_HEADERS);
+  var adsSheet = getSheet_("Ads", AD_HEADERS);
   var leadsSheet = getSheet_("Leads", LEAD_HEADERS);
   return json_({
     ok: true,
     calls: readRows_(callsSheet, CALL_HEADERS, CALL_NUMBER_FIELDS, CALL_BOOLEAN_FIELDS),
     clients: readRows_(clientsSheet, CLIENT_HEADERS, CLIENT_NUMBER_FIELDS, []),
     campaigns: readRows_(campaignsSheet, CAMPAIGN_HEADERS, CAMPAIGN_NUMBER_FIELDS, []),
+    ads: readRows_(adsSheet, AD_HEADERS, AD_NUMBER_FIELDS, []),
     leads: readRows_(leadsSheet, LEAD_HEADERS, LEAD_NUMBER_FIELDS, []),
   });
 }
@@ -328,13 +346,84 @@ function findLeadCost_(costPerAction) {
   return 0;
 }
 
-// Pulls last-30-day campaign-level metrics from the Marketing API —
+var META_INSIGHTS_FIELDS_ = [
+  "spend", "impressions", "reach", "clicks", "inline_link_clicks",
+  "ctr", "inline_link_click_ctr", "cpm", "cost_per_inline_link_click",
+  "actions", "cost_per_action_type",
+  "video_play_actions", "video_p25_watched_actions", "video_p50_watched_actions",
+  "video_p75_watched_actions", "video_p95_watched_actions", "video_p100_watched_actions",
+  "video_thruplay_watched_actions", "video_avg_time_watched_actions"
+];
+
+// Shared by campaign- and ad-level sync: turns one raw Marketing API
+// insights row into the metrics object both Campaigns and Ads store —
 // spend/reach/clicks, CTR/CPM, leads, landing page views, and the full
 // video-retention funnel (plays, 25/50/75/95/100% watched, ThruPlays,
-// average watch time) — and upserts one row per campaign (keyed by
-// campaign_name) into the Campaigns sheet. No-ops quietly if the token
-// hasn't been set up yet, so this is safe to call from a trigger before
-// setup is finished.
+// average watch time). Doesn't include the identifying fields
+// (campaign_name / ad_id / ad_name) — the caller adds those.
+function parseInsightsMetrics_(row) {
+  var videoPlays = findAction_(row.video_play_actions, "video_view");
+  var videoP50 = findAction_(row.video_p50_watched_actions, "video_view");
+  var impressions = Number(row.impressions) || 0;
+  return {
+    spend: row.spend,
+    impressions: row.impressions,
+    reach: row.reach,
+    clicks: row.clicks,
+    link_clicks: row.inline_link_clicks,
+    ctr: row.ctr,
+    link_ctr: row.inline_link_click_ctr,
+    cpm: row.cpm,
+    cost_per_link_click: row.cost_per_inline_link_click,
+    leads: findLeadAction_(row.actions),
+    cost_per_lead: findLeadCost_(row.cost_per_action_type),
+    landing_page_views: findAction_(row.actions, "landing_page_view"),
+    video_plays: videoPlays,
+    video_p25: findAction_(row.video_p25_watched_actions, "video_view"),
+    video_p50: videoP50,
+    video_p75: findAction_(row.video_p75_watched_actions, "video_view"),
+    video_p95: findAction_(row.video_p95_watched_actions, "video_view"),
+    video_p100: findAction_(row.video_p100_watched_actions, "video_view"),
+    thruplays: findAction_(row.video_thruplay_watched_actions, "video_view"),
+    video_avg_watch_seconds: findAction_(row.video_avg_time_watched_actions, "video_view"),
+    // Marketer-standard ratios, not native API fields — Hook Rate = % of
+    // people who watched at all after seeing the ad; Hold Rate (50%) = of
+    // those who started watching, % who made it halfway.
+    hook_rate: impressions ? Math.round((videoPlays / impressions) * 1000) / 10 : 0,
+    hold_rate_50: videoPlays ? Math.round((videoP50 / videoPlays) * 1000) / 10 : 0,
+  };
+}
+
+// Upserts `data` into `sheet`, matched on `keyField`'s value (not the row
+// "id" convention the Calls/Clients/Leads sheets use — Campaigns/Ads are
+// keyed by their own natural identifier instead).
+function upsertInsightsRow_(sheet, headers, numberFields, keyField, data) {
+  var lastRow = sheet.getLastRow();
+  var rows = lastRow > 1 ? sheet.getRange(2, 1, lastRow - 1, headers.length).getValues() : [];
+  var keyIdx = headers.indexOf(keyField);
+  var targetRow = -1;
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i][keyIdx]) === String(data[keyField])) {
+      targetRow = i + 2;
+      break;
+    }
+  }
+  var row = headers.map(function (h) {
+    if (h === "updated_at") return new Date().toISOString();
+    if (numberFields.indexOf(h) !== -1) return Number(data[h]) || 0;
+    return String(data[h] || "");
+  });
+  if (targetRow > 0) {
+    sheet.getRange(targetRow, 1, 1, headers.length).setValues([row]);
+  } else {
+    sheet.appendRow(row);
+  }
+}
+
+// Pulls last-30-day campaign-level metrics and upserts one row per campaign
+// (keyed by campaign_name) into the Campaigns sheet. No-ops quietly if the
+// token hasn't been set up yet, so this is safe to call from a trigger
+// before setup is finished.
 function fetchMetaInsights_() {
   var token = PropertiesService.getScriptProperties().getProperty("META_ACCESS_TOKEN");
   if (!token) {
@@ -342,14 +431,7 @@ function fetchMetaInsights_() {
     return { ok: false, error: "Meta token not configured" };
   }
 
-  var fields = [
-    "campaign_name", "spend", "impressions", "reach", "clicks", "inline_link_clicks",
-    "ctr", "inline_link_click_ctr", "cpm", "cost_per_inline_link_click",
-    "actions", "cost_per_action_type",
-    "video_play_actions", "video_p25_watched_actions", "video_p50_watched_actions",
-    "video_p75_watched_actions", "video_p95_watched_actions", "video_p100_watched_actions",
-    "video_thruplay_watched_actions", "video_avg_time_watched_actions"
-  ].join(",");
+  var fields = ["campaign_name"].concat(META_INSIGHTS_FIELDS_).join(",");
   // Only currently-active campaigns — a paused one still shows up in a
   // last-30-day window until 30 days after it stopped spending, which would
   // otherwise leave stale rows sitting in the Campaigns sheet.
@@ -369,64 +451,44 @@ function fetchMetaInsights_() {
   }
 
   var sheet = getSheet_("Campaigns", CAMPAIGN_HEADERS);
-  var rows = sheet.getLastRow() > 1
-    ? sheet.getRange(2, 1, sheet.getLastRow() - 1, CAMPAIGN_HEADERS.length).getValues()
-    : [];
-  var nameIdx = CAMPAIGN_HEADERS.indexOf("campaign_name");
-
   (parsed.data || []).forEach(function (c) {
-    var targetRow = -1;
-    for (var i = 0; i < rows.length; i++) {
-      if (String(rows[i][nameIdx]) === String(c.campaign_name)) {
-        targetRow = i + 2;
-        break;
-      }
-    }
+    var data = parseInsightsMetrics_(c);
+    data.campaign_name = c.campaign_name;
+    upsertInsightsRow_(sheet, CAMPAIGN_HEADERS, CAMPAIGN_NUMBER_FIELDS, "campaign_name", data);
+  });
 
-    var videoPlays = findAction_(c.video_play_actions, "video_view");
-    var videoP50 = findAction_(c.video_p50_watched_actions, "video_view");
-    var impressions = Number(c.impressions) || 0;
+  var adResult = fetchMetaAdInsights_(token);
+  return { ok: true, count: (parsed.data || []).length, adCount: adResult.count };
+}
 
-    var data = {
-      campaign_name: c.campaign_name,
-      spend: c.spend,
-      impressions: c.impressions,
-      reach: c.reach,
-      clicks: c.clicks,
-      link_clicks: c.inline_link_clicks,
-      ctr: c.ctr,
-      link_ctr: c.inline_link_click_ctr,
-      cpm: c.cpm,
-      cost_per_link_click: c.cost_per_inline_link_click,
-      leads: findLeadAction_(c.actions),
-      cost_per_lead: findLeadCost_(c.cost_per_action_type),
-      landing_page_views: findAction_(c.actions, "landing_page_view"),
-      video_plays: videoPlays,
-      video_p25: findAction_(c.video_p25_watched_actions, "video_view"),
-      video_p50: videoP50,
-      video_p75: findAction_(c.video_p75_watched_actions, "video_view"),
-      video_p95: findAction_(c.video_p95_watched_actions, "video_view"),
-      video_p100: findAction_(c.video_p100_watched_actions, "video_view"),
-      thruplays: findAction_(c.video_thruplay_watched_actions, "video_view"),
-      video_avg_watch_seconds: findAction_(c.video_avg_time_watched_actions, "video_view"),
-      // Marketer-standard ratios, not native API fields — Hook Rate = % of
-      // people who watched at all after seeing the ad; Hold Rate (50%) =
-      // of those who started watching, % who made it halfway.
-      hook_rate: impressions ? Math.round((videoPlays / impressions) * 1000) / 10 : 0,
-      hold_rate_50: videoPlays ? Math.round((videoP50 / videoPlays) * 1000) / 10 : 0,
-    };
+// Same idea as fetchMetaInsights_ but at ad (creative) level — one row per
+// currently-active ad, keyed by ad_id. Called from fetchMetaInsights_ so a
+// single trigger/button keeps both in sync; token is passed in rather than
+// re-read since the caller already has it.
+function fetchMetaAdInsights_(token) {
+  var fields = ["ad_id", "ad_name", "campaign_name"].concat(META_INSIGHTS_FIELDS_).join(",");
+  var filtering = encodeURIComponent(
+    JSON.stringify([{ field: "ad.effective_status", operator: "IN", value: ["ACTIVE"] }])
+  );
+  var url =
+    "https://graph.facebook.com/v21.0/" + META_AD_ACCOUNT_ID + "/insights" +
+    "?level=ad&fields=" + fields + "&filtering=" + filtering +
+    "&date_preset=last_30d&access_token=" + encodeURIComponent(token);
 
-    var row = CAMPAIGN_HEADERS.map(function (h) {
-      if (h === "updated_at") return new Date().toISOString();
-      if (CAMPAIGN_NUMBER_FIELDS.indexOf(h) !== -1) return Number(data[h]) || 0;
-      return String(data[h] || "");
-    });
+  var response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+  var parsed = JSON.parse(response.getContentText());
+  if (parsed.error) {
+    Logger.log("Meta API error (ads): " + JSON.stringify(parsed.error));
+    return { ok: false, count: 0, error: parsed.error.message || "Meta API error" };
+  }
 
-    if (targetRow > 0) {
-      sheet.getRange(targetRow, 1, 1, CAMPAIGN_HEADERS.length).setValues([row]);
-    } else {
-      sheet.appendRow(row);
-    }
+  var sheet = getSheet_("Ads", AD_HEADERS);
+  (parsed.data || []).forEach(function (a) {
+    var data = parseInsightsMetrics_(a);
+    data.ad_id = a.ad_id;
+    data.ad_name = a.ad_name;
+    data.campaign_name = a.campaign_name;
+    upsertInsightsRow_(sheet, AD_HEADERS, AD_NUMBER_FIELDS, "ad_id", data);
   });
 
   return { ok: true, count: (parsed.data || []).length };
@@ -604,6 +666,9 @@ function upsertCallFromWebhook_(call) {
   data.source = call.source || deriveSource_(call.event_type);
   data.campaign = call.campaign || deriveCampaign_(call);
   data.meta_campaign_name = call.meta_campaign_name || call.utm_source || "";
+  // utm_content carries Tom's ad name verbatim ("AD 1 - 07/08/26 - Wasting
+  // Leads"), matching Meta's own ad_name field exactly.
+  data.meta_ad_name = call.meta_ad_name || call.utm_content || "";
   // Phone-derived location is more precise (city/region vs. broad time
   // zone), so it's tried first; timezone is the fallback for whoever
   // didn't leave a phone number.

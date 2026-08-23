@@ -56,6 +56,7 @@ function emptyCall(): NewCall {
     location: "",
     temperature: "",
     qualified: "",
+    meta_ad_name: "",
   };
 }
 

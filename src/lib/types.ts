@@ -52,6 +52,9 @@ export interface Call {
   location: string;
   temperature: CallTemperature;
   qualified: CallQualified;
+  // Raw utm_content — Tom's ad names ("AD 1 - 07/08/26 - Wasting Leads")
+  // live here, matching Meta's ad_name field exactly.
+  meta_ad_name: string;
 }
 
 export type NewCall = Omit<Call, "id" | "created_at" | "updated_at">;
@@ -80,6 +83,36 @@ export interface Campaign {
   video_avg_watch_seconds: number;
   hook_rate: number; // % — video_plays / impressions
   hold_rate_50: number; // % — video_p50 / video_plays
+  updated_at: string;
+}
+
+// Same metrics as Campaign, at individual ad (creative) granularity.
+export interface Ad {
+  ad_id: string;
+  ad_name: string;
+  campaign_name: string;
+  spend: number;
+  impressions: number;
+  reach: number;
+  clicks: number;
+  link_clicks: number;
+  ctr: number;
+  link_ctr: number;
+  cpm: number;
+  cost_per_link_click: number;
+  leads: number;
+  cost_per_lead: number;
+  landing_page_views: number;
+  video_plays: number;
+  video_p25: number;
+  video_p50: number;
+  video_p75: number;
+  video_p95: number;
+  video_p100: number;
+  thruplays: number;
+  video_avg_watch_seconds: number;
+  hook_rate: number;
+  hold_rate_50: number;
   updated_at: string;
 }
 

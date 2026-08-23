@@ -1,4 +1,4 @@
-import type { Call, Campaign, Client, Lead, NewCall, NewClient } from "./types";
+import type { Ad, Call, Campaign, Client, Lead, NewCall, NewClient } from "./types";
 
 // The Google Apps Script web-app URL (ends in /exec) — once you've deployed
 // apps-script/Code.gs inside your Google Sheet (see README.md), paste the
@@ -17,23 +17,24 @@ export const isConfigured = () => apiUrl() !== "";
 // Runs immediately with no setup, same as the SOP hub — everything lives in
 // this browser only until you connect the Sheet (see README.md).
 
-type LocalDb = { calls: Call[]; clients: Client[]; campaigns: Campaign[]; leads: Lead[] };
+type LocalDb = { calls: Call[]; clients: Client[]; campaigns: Campaign[]; ads: Ad[]; leads: Lead[] };
 
 const LOCAL_KEY = "ops_tracker_v1";
 
 function loadLocal(): LocalDb {
   const raw = localStorage.getItem(LOCAL_KEY);
-  if (!raw) return { calls: [], clients: [], campaigns: [], leads: [] };
+  if (!raw) return { calls: [], clients: [], campaigns: [], ads: [], leads: [] };
   try {
     const parsed = JSON.parse(raw);
     return {
       calls: parsed.calls ?? [],
       clients: parsed.clients ?? [],
       campaigns: parsed.campaigns ?? [],
+      ads: parsed.ads ?? [],
       leads: parsed.leads ?? [],
     };
   } catch {
-    return { calls: [], clients: [], campaigns: [], leads: [] };
+    return { calls: [], clients: [], campaigns: [], ads: [], leads: [] };
   }
 }
 
@@ -60,7 +61,7 @@ async function post(body: Record<string, unknown>): Promise<any> {
   return data;
 }
 
-export type AllData = { calls: Call[]; clients: Client[]; campaigns: Campaign[]; leads: Lead[] };
+export type AllData = { calls: Call[]; clients: Client[]; campaigns: Campaign[]; ads: Ad[]; leads: Lead[] };
 
 export async function fetchAll(): Promise<AllData> {
   if (!isConfigured()) return loadLocal();
@@ -72,6 +73,7 @@ export async function fetchAll(): Promise<AllData> {
     calls: data.calls ?? [],
     clients: data.clients ?? [],
     campaigns: data.campaigns ?? [],
+    ads: data.ads ?? [],
     leads: data.leads ?? [],
   };
 }
