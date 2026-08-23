@@ -462,17 +462,22 @@ function fetchMetaInsights_() {
 }
 
 // Same idea as fetchMetaInsights_ but at ad (creative) level — one row per
-// currently-active ad, keyed by ad_id. Called from fetchMetaInsights_ so a
-// single trigger/button keeps both in sync; token is passed in rather than
-// re-read since the caller already has it.
+// ad with delivery in the last 30 days, keyed by ad_id. Called from
+// fetchMetaInsights_ so a single trigger/button keeps both in sync; token is
+// passed in rather than re-read since the caller already has it.
+//
+// No effective_status filter here (unlike the campaign-level fetch): an
+// ad edit in Meta can spin up a new ad_id under the same ad name, leaving
+// the prior ad_id PAUSED/ARCHIVED even though it still holds real spend
+// from earlier in the window. Filtering to ACTIVE-only silently dropped
+// that spend, undercounting vs. what Ads Manager shows for the ad. The
+// date_preset=last_30d window is what keeps this from accumulating
+// long-dead rows — an ad naturally drops off 30 days after it last spent.
 function fetchMetaAdInsights_(token) {
   var fields = ["ad_id", "ad_name", "campaign_name"].concat(META_INSIGHTS_FIELDS_).join(",");
-  var filtering = encodeURIComponent(
-    JSON.stringify([{ field: "ad.effective_status", operator: "IN", value: ["ACTIVE"] }])
-  );
   var url =
     "https://graph.facebook.com/v21.0/" + META_AD_ACCOUNT_ID + "/insights" +
-    "?level=ad&fields=" + fields + "&filtering=" + filtering +
+    "?level=ad&fields=" + fields +
     "&date_preset=last_30d&access_token=" + encodeURIComponent(token);
 
   var response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });

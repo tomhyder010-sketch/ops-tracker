@@ -123,9 +123,9 @@ export default function CallsPage() {
     const closeRate = shownOrLater.length
       ? Math.round((closed.length / shownOrLater.length) * 100)
       : null;
-    // Qualification is only meaningful once someone actually showed up.
-    const qualificationRate = shownOrLater.length
-      ? Math.round((qualified.length / shownOrLater.length) * 100)
+    // % of all (live) booked calls that were marked Qualified.
+    const qualificationRate = live.length
+      ? Math.round((qualified.length / live.length) * 100)
       : null;
     // Cancellation happens before the call would occur, so it's a share of
     // every booking, not just the ones that made it to "Shown".
@@ -243,7 +243,7 @@ export default function CallsPage() {
         <Kpi
           label="Qualification Rate"
           value={kpis.qualificationRate === null ? "—" : `${kpis.qualificationRate}%`}
-          sub="of shown"
+          sub="of all booked"
         />
         <Kpi
           label="Cancellation Rate"
