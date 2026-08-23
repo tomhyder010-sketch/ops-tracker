@@ -31,7 +31,11 @@ var CALL_HEADERS = [
   // Invitee's location — derived from Calendly's timezone field (the only
   // per-lead location signal actually available; Meta's geo breakdowns are
   // aggregate/per-campaign, not per-lead).
-  "location"
+  "location",
+  // Follow-up temperature (Warm/Cold/Lost) — a tag independent of the
+  // Booked/Shown/Closed pipeline status, e.g. a call can be "Shown" AND
+  // "Warm" at the same time.
+  "temperature"
 ];
 
 var CALL_NUMBER_FIELDS = ["value"];

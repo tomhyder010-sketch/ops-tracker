@@ -7,6 +7,11 @@ export const CALL_STATUSES = [
 ] as const;
 export type CallStatus = (typeof CALL_STATUSES)[number];
 
+// Follow-up temperature — a tag independent of the pipeline status (a call
+// can be "Shown" and "Warm" at the same time). "" means not yet assessed.
+export const CALL_TEMPERATURES = ["", "Warm", "Cold", "Lost"] as const;
+export type CallTemperature = (typeof CALL_TEMPERATURES)[number];
+
 // Suggested values for the "source" field (which Calendly link the call came
 // from) — shown as datalist suggestions, but the field stays free text so it
 // grows with whatever Zapier/Calendly actually sends.
@@ -40,6 +45,7 @@ export interface Call {
   // per-lead location signal available — Meta's geo data is
   // aggregate/per-campaign, not per-lead).
   location: string;
+  temperature: CallTemperature;
 }
 
 export type NewCall = Omit<Call, "id" | "created_at" | "updated_at">;
