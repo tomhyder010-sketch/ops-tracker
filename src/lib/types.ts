@@ -160,6 +160,8 @@ export interface Client {
   notes: string;
   created_at: string;
   updated_at: string;
+  refunded: boolean;
+  refund_amount: number;
 }
 
 export type NewClient = Omit<Client, "id" | "created_at" | "updated_at">;

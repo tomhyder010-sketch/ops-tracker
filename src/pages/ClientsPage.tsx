@@ -34,6 +34,8 @@ function emptyClient(): NewClient {
     start_date: new Date().toISOString().slice(0, 10),
     churn_date: "",
     notes: "",
+    refunded: false,
+    refund_amount: 0,
   };
 }
 
@@ -77,7 +79,10 @@ export default function ClientsPage() {
     const avgRetentionMonths = recurring.length
       ? recurring.reduce((sum, c) => sum + monthsActive(c.start_date, c.churn_date || null), 0) / recurring.length
       : 0;
-    return { activeCount: active.length, mrr, totalCashCollected, avgRetentionMonths };
+    const refundedClients = clients.filter((c) => c.refunded);
+    const refundRate = clients.length ? Math.round((refundedClients.length / clients.length) * 100) : null;
+    const amountRefunded = clients.reduce((sum, c) => sum + (c.refund_amount || 0), 0);
+    return { activeCount: active.length, mrr, totalCashCollected, avgRetentionMonths, refundRate, amountRefunded };
   }, [clients]);
 
   function openAdd() {
@@ -129,6 +134,10 @@ export default function ClientsPage() {
         <Kpi label="Total Cash Collected" value={fmt$(kpis.totalCashCollected)} sub="= LTV to date" />
         <Kpi label="Avg. Retention" value={`${kpis.avgRetentionMonths.toFixed(1)} mo`} />
       </div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Kpi label="Refund Rate" value={kpis.refundRate === null ? "—" : `${kpis.refundRate}%`} sub="of all clients" />
+        <Kpi label="Amount Refunded" value={fmt$(kpis.amountRefunded)} />
+      </div>
 
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card p-3">
         <div className="flex items-center gap-1">
@@ -160,6 +169,7 @@ export default function ClientsPage() {
               <th className="px-3 py-2">Status</th>
               <th className="px-3 py-2">MRR</th>
               <th className="px-3 py-2">Cash Collected (LTV)</th>
+              <th className="px-3 py-2">Refunded</th>
               <th className="px-3 py-2">Retention</th>
               <th className="px-3 py-2">Start</th>
               <th className="px-3 py-2" />
@@ -168,14 +178,14 @@ export default function ClientsPage() {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={7} className="px-3 py-6 text-center text-muted-foreground">
+                <td colSpan={8} className="px-3 py-6 text-center text-muted-foreground">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && filtered.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-3 py-6 text-center text-muted-foreground">
+                <td colSpan={8} className="px-3 py-6 text-center text-muted-foreground">
                   No clients yet.
                 </td>
               </tr>
@@ -194,6 +204,13 @@ export default function ClientsPage() {
                   </td>
                   <td className="px-3 py-2">{c.monthly_value ? `${fmt$(c.monthly_value)}/mo` : "—"}</td>
                   <td className="px-3 py-2 font-medium text-emerald-400">{fmt$(c.cash_collected)}</td>
+                  <td className="px-3 py-2">
+                    {c.refunded ? (
+                      <Badge tone="red">{fmt$(c.refund_amount)}</Badge>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
                   <td className="px-3 py-2 text-muted-foreground">
                     {monthsActive(c.start_date, c.churn_date || null)} mo
                   </td>
@@ -302,6 +319,24 @@ export default function ClientsPage() {
             <Label>Notes</Label>
             <Textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
           </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={form.refunded}
+              onChange={(e) => setForm({ ...form, refunded: e.target.checked })}
+            />
+            Refunded
+          </label>
+          {form.refunded && (
+            <div>
+              <Label>Refund Amount ($)</Label>
+              <Input
+                type="number"
+                value={form.refund_amount || ""}
+                onChange={(e) => setForm({ ...form, refund_amount: parseFloat(e.target.value) || 0 })}
+              />
+            </div>
+          )}
         </div>
       </Modal>
     </div>

@@ -51,10 +51,11 @@ var CALL_BOOLEAN_FIELDS = ["is_duplicate"];
 var CLIENT_HEADERS = [
   "id", "name", "contact_name", "status", "deal_value", "monthly_value",
   "cash_collected", "start_date", "churn_date", "notes", "created_at",
-  "updated_at"
+  "updated_at", "refunded", "refund_amount"
 ];
 
-var CLIENT_NUMBER_FIELDS = ["deal_value", "monthly_value", "cash_collected"];
+var CLIENT_NUMBER_FIELDS = ["deal_value", "monthly_value", "cash_collected", "refund_amount"];
+var CLIENT_BOOLEAN_FIELDS = ["refunded"];
 
 // One row per application/questionnaire submission from the Lovable app —
 // pushed live via a Supabase Database Webhook (pg_net trigger) on every
@@ -272,7 +273,7 @@ function doGet(e) {
   return json_({
     ok: true,
     calls: readRows_(callsSheet, CALL_HEADERS, CALL_NUMBER_FIELDS, CALL_BOOLEAN_FIELDS),
-    clients: readRows_(clientsSheet, CLIENT_HEADERS, CLIENT_NUMBER_FIELDS, []),
+    clients: readRows_(clientsSheet, CLIENT_HEADERS, CLIENT_NUMBER_FIELDS, CLIENT_BOOLEAN_FIELDS),
     campaigns: readRows_(campaignsSheet, CAMPAIGN_HEADERS, CAMPAIGN_NUMBER_FIELDS, []),
     ads: readRows_(adsSheet, AD_HEADERS, AD_NUMBER_FIELDS, []),
     leads: readRows_(leadsSheet, LEAD_HEADERS, LEAD_NUMBER_FIELDS, []),
@@ -719,7 +720,7 @@ function doPost(e) {
 
     if (body.action === "upsert_client") {
       var clientsSheet = getSheet_("Clients", CLIENT_HEADERS);
-      var savedClient = upsertRow_(clientsSheet, CLIENT_HEADERS, CLIENT_NUMBER_FIELDS, [], body.client || {});
+      var savedClient = upsertRow_(clientsSheet, CLIENT_HEADERS, CLIENT_NUMBER_FIELDS, CLIENT_BOOLEAN_FIELDS, body.client || {});
       return json_({ ok: true, client: savedClient });
     }
 
