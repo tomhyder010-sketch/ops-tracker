@@ -151,9 +151,10 @@ export interface Client {
   name: string;
   contact_name: string;
   status: ClientStatus;
-  deal_value: number; // one-off placement/setup fee
   monthly_value: number; // MRR / ongoing subscription value
-  cash_collected: number; // running total actually collected — authoritative
+  // Total cash actually collected to date — this IS the LTV figure, no
+  // separate estimate/formula on top of it.
+  cash_collected: number;
   start_date: string;
   churn_date: string;
   notes: string;

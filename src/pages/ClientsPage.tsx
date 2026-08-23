@@ -23,16 +23,11 @@ function monthsActive(start: string, end: string | null): number {
   return Math.max(0, months);
 }
 
-function estimatedLtv(c: Client): number {
-  return c.deal_value + c.monthly_value * monthsActive(c.start_date, c.churn_date || null);
-}
-
 function emptyClient(): NewClient {
   return {
     name: "",
     contact_name: "",
     status: "Active",
-    deal_value: 0,
     monthly_value: 0,
     cash_collected: 0,
     start_date: new Date().toISOString().slice(0, 10),
@@ -75,10 +70,10 @@ export default function ClientsPage() {
     const active = clients.filter((c) => c.status === "Active");
     const mrr = active.reduce((sum, c) => sum + c.monthly_value, 0);
     const totalCashCollected = clients.reduce((sum, c) => sum + c.cash_collected, 0);
-    const avgLtv = clients.length
-      ? clients.reduce((sum, c) => sum + estimatedLtv(c), 0) / clients.length
+    const avgRetentionMonths = clients.length
+      ? clients.reduce((sum, c) => sum + monthsActive(c.start_date, c.churn_date || null), 0) / clients.length
       : 0;
-    return { activeCount: active.length, mrr, totalCashCollected, avgLtv };
+    return { activeCount: active.length, mrr, totalCashCollected, avgRetentionMonths };
   }, [clients]);
 
   function openAdd() {
@@ -127,8 +122,8 @@ export default function ClientsPage() {
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Kpi label="Active Clients" value={kpis.activeCount} />
         <Kpi label="MRR" value={fmt$(kpis.mrr)} sub="active clients only" />
-        <Kpi label="Total Cash Collected" value={fmt$(kpis.totalCashCollected)} />
-        <Kpi label="Avg. Est. LTV" value={fmt$(Math.round(kpis.avgLtv))} />
+        <Kpi label="Total Cash Collected" value={fmt$(kpis.totalCashCollected)} sub="= LTV to date" />
+        <Kpi label="Avg. Retention" value={`${kpis.avgRetentionMonths.toFixed(1)} mo`} />
       </div>
 
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card p-3">
@@ -159,10 +154,9 @@ export default function ClientsPage() {
             <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
               <th className="px-3 py-2">Client</th>
               <th className="px-3 py-2">Status</th>
-              <th className="px-3 py-2">Deal Value</th>
               <th className="px-3 py-2">MRR</th>
-              <th className="px-3 py-2">Cash Collected</th>
-              <th className="px-3 py-2">Est. LTV</th>
+              <th className="px-3 py-2">Cash Collected (LTV)</th>
+              <th className="px-3 py-2">Retention</th>
               <th className="px-3 py-2">Start</th>
               <th className="px-3 py-2" />
             </tr>
@@ -170,14 +164,14 @@ export default function ClientsPage() {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={8} className="px-3 py-6 text-center text-muted-foreground">
+                <td colSpan={7} className="px-3 py-6 text-center text-muted-foreground">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && filtered.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-3 py-6 text-center text-muted-foreground">
+                <td colSpan={7} className="px-3 py-6 text-center text-muted-foreground">
                   No clients yet.
                 </td>
               </tr>
@@ -194,10 +188,11 @@ export default function ClientsPage() {
                   <td className="px-3 py-2">
                     <Badge tone={STATUS_TONE[c.status]}>{c.status}</Badge>
                   </td>
-                  <td className="px-3 py-2">{fmt$(c.deal_value)}</td>
                   <td className="px-3 py-2">{c.monthly_value ? `${fmt$(c.monthly_value)}/mo` : "—"}</td>
                   <td className="px-3 py-2 font-medium text-emerald-400">{fmt$(c.cash_collected)}</td>
-                  <td className="px-3 py-2">{fmt$(estimatedLtv(c))}</td>
+                  <td className="px-3 py-2 text-muted-foreground">
+                    {monthsActive(c.start_date, c.churn_date || null)} mo
+                  </td>
                   <td className="px-3 py-2 text-muted-foreground">{c.start_date || "—"}</td>
                   <td className="px-3 py-2">
                     <div className="flex items-center justify-end gap-1">
@@ -250,32 +245,22 @@ export default function ClientsPage() {
               />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Status</Label>
-              <Select
-                value={form.status}
-                onChange={(e) => setForm({ ...form, status: e.target.value as ClientStatus })}
-              >
-                {CLIENT_STATUSES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div>
-              <Label>Deal Value ($, one-off)</Label>
-              <Input
-                type="number"
-                value={form.deal_value || ""}
-                onChange={(e) => setForm({ ...form, deal_value: parseFloat(e.target.value) || 0 })}
-              />
-            </div>
+          <div>
+            <Label>Status</Label>
+            <Select
+              value={form.status}
+              onChange={(e) => setForm({ ...form, status: e.target.value as ClientStatus })}
+            >
+              {CLIENT_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </Select>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label>Monthly Value ($ MRR)</Label>
+              <Label>MRR ($)</Label>
               <Input
                 type="number"
                 value={form.monthly_value || ""}
