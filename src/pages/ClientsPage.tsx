@@ -5,10 +5,11 @@ import { fetchAll, upsertClient, deleteClient } from "../lib/api";
 import { CLIENT_STATUSES, type Client, type ClientStatus, type NewClient } from "../lib/types";
 import { Badge, Button, Input, Kpi, Label, Modal, Select, Textarea } from "../components/ui";
 
-const STATUS_TONE: Record<ClientStatus, "green" | "yellow" | "muted"> = {
+const STATUS_TONE: Record<ClientStatus, "green" | "yellow" | "muted" | "blue"> = {
   Active: "green",
   Paused: "yellow",
   Churned: "muted",
+  "One Time": "blue",
 };
 
 const fmt$ = (n: number) => "$" + (n || 0).toLocaleString();
@@ -70,8 +71,11 @@ export default function ClientsPage() {
     const active = clients.filter((c) => c.status === "Active");
     const mrr = active.reduce((sum, c) => sum + c.monthly_value, 0);
     const totalCashCollected = clients.reduce((sum, c) => sum + c.cash_collected, 0);
-    const avgRetentionMonths = clients.length
-      ? clients.reduce((sum, c) => sum + monthsActive(c.start_date, c.churn_date || null), 0) / clients.length
+    // One Time deals aren't recurring, so they shouldn't drag down/inflate
+    // the recurring-client retention average.
+    const recurring = clients.filter((c) => c.status !== "One Time");
+    const avgRetentionMonths = recurring.length
+      ? recurring.reduce((sum, c) => sum + monthsActive(c.start_date, c.churn_date || null), 0) / recurring.length
       : 0;
     return { activeCount: active.length, mrr, totalCashCollected, avgRetentionMonths };
   }, [clients]);

@@ -143,7 +143,7 @@ export const QUESTIONNAIRE_NAMES: Record<string, string> = {
 // use operationally, even though they still exist in the questionnaire.
 export const HIDDEN_ANSWER_KEYS = ["How many leads does your business get a month?"];
 
-export const CLIENT_STATUSES = ["Active", "Paused", "Churned"] as const;
+export const CLIENT_STATUSES = ["Active", "Paused", "Churned", "One Time"] as const;
 export type ClientStatus = (typeof CLIENT_STATUSES)[number];
 
 export interface Client {
