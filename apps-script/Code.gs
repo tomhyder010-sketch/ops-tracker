@@ -35,7 +35,10 @@ var CALL_HEADERS = [
   // Follow-up temperature (Warm/Cold/Lost) — a tag independent of the
   // Booked/Shown/Closed pipeline status, e.g. a call can be "Shown" AND
   // "Warm" at the same time.
-  "temperature"
+  "temperature",
+  // Whether the prospect was actually qualified on the call — feeds
+  // "Cost per Qualified Call" on the Ad Campaigns tab.
+  "qualified"
 ];
 
 var CALL_NUMBER_FIELDS = ["value"];

@@ -12,6 +12,11 @@ export type CallStatus = (typeof CALL_STATUSES)[number];
 export const CALL_TEMPERATURES = ["", "Warm", "Cold", "Lost"] as const;
 export type CallTemperature = (typeof CALL_TEMPERATURES)[number];
 
+// Whether the prospect was actually qualified on the call — feeds "Cost per
+// Qualified Call" on the Ad Campaigns tab. "" means not yet assessed.
+export const CALL_QUALIFIED_OPTIONS = ["", "Qualified", "Not Qualified"] as const;
+export type CallQualified = (typeof CALL_QUALIFIED_OPTIONS)[number];
+
 // Suggested values for the "source" field (which Calendly link the call came
 // from) — shown as datalist suggestions, but the field stays free text so it
 // grows with whatever Zapier/Calendly actually sends.
@@ -46,6 +51,7 @@ export interface Call {
   // aggregate/per-campaign, not per-lead).
   location: string;
   temperature: CallTemperature;
+  qualified: CallQualified;
 }
 
 export type NewCall = Omit<Call, "id" | "created_at" | "updated_at">;

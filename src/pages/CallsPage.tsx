@@ -3,10 +3,12 @@ import { toast } from "sonner";
 import { Copy, LayoutGrid, Pencil, Table as TableIcon, Trash2 } from "lucide-react";
 import { fetchAll, upsertCall, deleteCall } from "../lib/api";
 import {
+  CALL_QUALIFIED_OPTIONS,
   CALL_SOURCE_SUGGESTIONS,
   CALL_STATUSES,
   CALL_TEMPERATURES,
   type Call,
+  type CallQualified,
   type CallStatus,
   type CallTemperature,
   type NewCall,
@@ -29,6 +31,11 @@ const TEMPERATURE_TONE: Record<Exclude<CallTemperature, "">, "yellow" | "blue" |
   Lost: "red",
 };
 
+const QUALIFIED_TONE: Record<Exclude<CallQualified, "">, "green" | "muted"> = {
+  Qualified: "green",
+  "Not Qualified": "muted",
+};
+
 const fmt$ = (n: number) => (n ? "$" + n.toLocaleString() : "—");
 
 function emptyCall(): NewCall {
@@ -48,6 +55,7 @@ function emptyCall(): NewCall {
     meta_campaign_name: "",
     location: "",
     temperature: "",
+    qualified: "",
   };
 }
 
@@ -168,6 +176,16 @@ export default function CallsPage() {
     setCalls((prev) => prev.map((c) => (c.id === call.id ? { ...c, temperature } : c)));
     try {
       await upsertCall({ ...call, temperature });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update");
+      load();
+    }
+  }
+
+  async function setQualified(call: Call, qualified: CallQualified) {
+    setCalls((prev) => prev.map((c) => (c.id === call.id ? { ...c, qualified } : c)));
+    try {
+      await upsertCall({ ...call, qualified });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to update");
       load();
@@ -315,9 +333,14 @@ export default function CallsPage() {
                     >
                       <div className="mb-1 flex items-start justify-between gap-2">
                         <span className="text-sm font-semibold">{c.invitee_name || "—"}</span>
-                        {c.temperature && (
-                          <Badge tone={TEMPERATURE_TONE[c.temperature]}>{c.temperature}</Badge>
-                        )}
+                        <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                          {c.temperature && (
+                            <Badge tone={TEMPERATURE_TONE[c.temperature]}>{c.temperature}</Badge>
+                          )}
+                          {c.qualified && (
+                            <Badge tone={QUALIFIED_TONE[c.qualified]}>{c.qualified}</Badge>
+                          )}
+                        </div>
                       </div>
                       <div className="text-xs text-muted-foreground">{c.location || c.invitee_email}</div>
                       {c.value > 0 && (
@@ -353,6 +376,7 @@ export default function CallsPage() {
                 <th className="px-3 py-2">Event Type</th>
                 <th className="px-3 py-2">Status</th>
                 <th className="px-3 py-2">Temp</th>
+                <th className="px-3 py-2">Qualified</th>
                 <th className="px-3 py-2">Cash Collected</th>
                 <th className="px-3 py-2" />
               </tr>
@@ -360,14 +384,14 @@ export default function CallsPage() {
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={9} className="px-3 py-6 text-center text-muted-foreground">
+                  <td colSpan={10} className="px-3 py-6 text-center text-muted-foreground">
                     Loading…
                   </td>
                 </tr>
               )}
               {!loading && filtered.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-3 py-6 text-center text-muted-foreground">
+                  <td colSpan={10} className="px-3 py-6 text-center text-muted-foreground">
                     No calls match your filters.
                   </td>
                 </tr>
@@ -413,6 +437,19 @@ export default function CallsPage() {
                         {CALL_TEMPERATURES.map((t) => (
                           <option key={t} value={t}>
                             {t || "—"}
+                          </option>
+                        ))}
+                      </Select>
+                    </td>
+                    <td className="px-3 py-2">
+                      <Select
+                        value={c.qualified}
+                        onChange={(e) => setQualified(c, e.target.value as CallQualified)}
+                        className="h-8 w-auto py-1 text-xs"
+                      >
+                        {CALL_QUALIFIED_OPTIONS.map((q) => (
+                          <option key={q} value={q}>
+                            {q || "—"}
                           </option>
                         ))}
                       </Select>
@@ -551,7 +588,7 @@ export default function CallsPage() {
               />
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>Status</Label>
               <Select
@@ -574,6 +611,21 @@ export default function CallsPage() {
                 {CALL_TEMPERATURES.map((t) => (
                   <option key={t} value={t}>
                     {t || "Not set"}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Qualified?</Label>
+              <Select
+                value={form.qualified}
+                onChange={(e) => setForm({ ...form, qualified: e.target.value as CallQualified })}
+              >
+                {CALL_QUALIFIED_OPTIONS.map((q) => (
+                  <option key={q} value={q}>
+                    {q || "Not set"}
                   </option>
                 ))}
               </Select>

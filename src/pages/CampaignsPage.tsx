@@ -9,7 +9,14 @@ const fmt$ = (n: number) => "£" + (n || 0).toLocaleString(undefined, { maximumF
 const fmtN = (n: number) => (n || 0).toLocaleString();
 const fmtPct = (n: number) => (n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 }) + "%";
 
-type Row = Campaign & { bookedCalls: number; costPerCall: number | null };
+type Row = Campaign & {
+  bookedCalls: number;
+  costPerCall: number | null;
+  shownCalls: number;
+  costPerShownCall: number | null;
+  qualifiedCalls: number;
+  costPerQualifiedCall: number | null;
+};
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
@@ -68,13 +75,24 @@ export default function CampaignsPage() {
   const rows: Row[] = useMemo(() => {
     return campaigns
       .map((c) => {
-        const bookedCalls = calls.filter(
+        const campaignCalls = calls.filter(
           (call) => !call.is_duplicate && call.meta_campaign_name === c.campaign_name
+        );
+        const bookedCalls = campaignCalls.length;
+        // "Shown" here means they actually showed up, regardless of what
+        // happened after — Closed calls obviously showed too.
+        const shownCalls = campaignCalls.filter(
+          (call) => call.status === "Shown" || call.status === "Closed"
         ).length;
+        const qualifiedCalls = campaignCalls.filter((call) => call.qualified === "Qualified").length;
         return {
           ...c,
           bookedCalls,
           costPerCall: bookedCalls ? c.spend / bookedCalls : null,
+          shownCalls,
+          costPerShownCall: shownCalls ? c.spend / shownCalls : null,
+          qualifiedCalls,
+          costPerQualifiedCall: qualifiedCalls ? c.spend / qualifiedCalls : null,
         };
       })
       .sort((a, b) => b.spend - a.spend);
@@ -84,7 +102,18 @@ export default function CampaignsPage() {
     const spend = campaigns.reduce((sum, c) => sum + c.spend, 0);
     const leads = campaigns.reduce((sum, c) => sum + c.leads, 0);
     const bookedCalls = rows.reduce((sum, r) => sum + r.bookedCalls, 0);
-    return { spend, leads, bookedCalls, costPerCall: bookedCalls ? spend / bookedCalls : null };
+    const shownCalls = rows.reduce((sum, r) => sum + r.shownCalls, 0);
+    const qualifiedCalls = rows.reduce((sum, r) => sum + r.qualifiedCalls, 0);
+    return {
+      spend,
+      leads,
+      bookedCalls,
+      costPerCall: bookedCalls ? spend / bookedCalls : null,
+      shownCalls,
+      costPerShownCall: shownCalls ? spend / shownCalls : null,
+      qualifiedCalls,
+      costPerQualifiedCall: qualifiedCalls ? spend / qualifiedCalls : null,
+    };
   }, [campaigns, rows]);
 
   const lastUpdated = campaigns.length
@@ -108,6 +137,18 @@ export default function CampaignsPage() {
         <Kpi
           label="Cost / Booked Call"
           value={totals.costPerCall === null ? "—" : fmt$(totals.costPerCall)}
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Kpi label="Shown Calls" value={totals.shownCalls} />
+        <Kpi
+          label="Cost / Shown Call"
+          value={totals.costPerShownCall === null ? "—" : fmt$(totals.costPerShownCall)}
+        />
+        <Kpi label="Qualified Calls" value={totals.qualifiedCalls} />
+        <Kpi
+          label="Cost / Qualified Call"
+          value={totals.costPerQualifiedCall === null ? "—" : fmt$(totals.costPerQualifiedCall)}
         />
       </div>
 
@@ -161,6 +202,10 @@ export default function CampaignsPage() {
               <Metric label="Landing Page Views" value={fmtN(r.landing_page_views)} />
               <Metric label="Booked Calls" value={fmtN(r.bookedCalls)} />
               <Metric label="Cost / Booked Call" value={r.costPerCall === null ? "—" : fmt$(r.costPerCall)} />
+              <Metric label="Shown Calls" value={fmtN(r.shownCalls)} />
+              <Metric label="Cost / Shown Call" value={r.costPerShownCall === null ? "—" : fmt$(r.costPerShownCall)} />
+              <Metric label="Qualified Calls" value={fmtN(r.qualifiedCalls)} />
+              <Metric label="Cost / Qualified Call" value={r.costPerQualifiedCall === null ? "—" : fmt$(r.costPerQualifiedCall)} />
             </MetricGroup>
 
             <MetricGroup title="Video Engagement">
