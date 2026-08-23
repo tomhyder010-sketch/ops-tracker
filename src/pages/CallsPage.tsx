@@ -116,10 +116,21 @@ export default function CallsPage() {
     const shownOrLater = live.filter((c) => c.status === "Shown" || c.status === "Closed");
     const noShow = live.filter((c) => c.status === "No Show");
     const closed = live.filter((c) => c.status === "Closed");
+    const cancelled = live.filter((c) => c.status === "Cancelled");
+    const qualified = live.filter((c) => c.qualified === "Qualified");
     const showDenom = shownOrLater.length + noShow.length;
     const showRate = showDenom ? Math.round((shownOrLater.length / showDenom) * 100) : null;
     const closeRate = shownOrLater.length
       ? Math.round((closed.length / shownOrLater.length) * 100)
+      : null;
+    // Qualification is only meaningful once someone actually showed up.
+    const qualificationRate = shownOrLater.length
+      ? Math.round((qualified.length / shownOrLater.length) * 100)
+      : null;
+    // Cancellation happens before the call would occur, so it's a share of
+    // every booking, not just the ones that made it to "Shown".
+    const cancellationRate = live.length
+      ? Math.round((cancelled.length / live.length) * 100)
       : null;
     // Cash Collected is now a standalone $ field on every call (not tied to
     // a status), so this sums it across all live calls regardless of status.
@@ -128,6 +139,8 @@ export default function CallsPage() {
       total: live.length,
       showRate,
       closeRate,
+      qualificationRate,
+      cancellationRate,
       cashCollected,
     };
   }, [calls]);
@@ -225,6 +238,18 @@ export default function CallsPage() {
         <Kpi label="Show Rate" value={kpis.showRate === null ? "—" : `${kpis.showRate}%`} />
         <Kpi label="Close Rate" value={kpis.closeRate === null ? "—" : `${kpis.closeRate}%`} sub="of shown" />
         <Kpi label="Cash Collected" value={fmt$(kpis.cashCollected)} />
+      </div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Kpi
+          label="Qualification Rate"
+          value={kpis.qualificationRate === null ? "—" : `${kpis.qualificationRate}%`}
+          sub="of shown"
+        />
+        <Kpi
+          label="Cancellation Rate"
+          value={kpis.cancellationRate === null ? "—" : `${kpis.cancellationRate}%`}
+          sub="of all booked"
+        />
       </div>
 
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card p-3">
