@@ -63,19 +63,37 @@ async function post(body: Record<string, unknown>): Promise<any> {
 
 export type AllData = { calls: Call[]; clients: Client[]; campaigns: Campaign[]; ads: Ad[]; leads: Lead[] };
 
+// Apps Script's own request latency is several seconds regardless of what
+// it's doing (auth + routing overhead, not our code) — that's fixed cost we
+// can't remove. What we CAN remove is paying it again every time the user
+// switches tabs: each page (Leads/Calls/Clients/Campaigns) mounts fresh and
+// calls fetchAll() on its own, even though it's the exact same "give me
+// everything" request every time. This cache makes tab-switching instant
+// after the first load; any mutation below invalidates it so the follow-up
+// reload each page already does after saving gets truly fresh data.
+let cache: { data: AllData; at: number } | null = null;
+const CACHE_TTL_MS = 30_000;
+
+function invalidateCache() {
+  cache = null;
+}
+
 export async function fetchAll(): Promise<AllData> {
   if (!isConfigured()) return loadLocal();
+  if (cache && Date.now() - cache.at < CACHE_TTL_MS) return cache.data;
   const res = await fetch(apiUrl());
   if (!res.ok) throw new Error(`Backend returned ${res.status}`);
   const data = await res.json();
   if (!data.ok) throw new Error(data.error || "Backend error");
-  return {
+  const all: AllData = {
     calls: data.calls ?? [],
     clients: data.clients ?? [],
     campaigns: data.campaigns ?? [],
     ads: data.ads ?? [],
     leads: data.leads ?? [],
   };
+  cache = { data: all, at: Date.now() };
+  return all;
 }
 
 // Triggers an on-demand Meta Ads sync (in addition to the automatic 6-hour
@@ -84,6 +102,7 @@ export async function fetchAll(): Promise<AllData> {
 export async function syncMetaNow(): Promise<void> {
   if (!isConfigured()) return;
   await post({ action: "sync_meta_now" });
+  invalidateCache();
 }
 
 // ---- calls --------------------------------------------------------------
@@ -103,6 +122,7 @@ export async function upsertCall(call: NewCall & { id?: string }): Promise<void>
     return;
   }
   await post({ action: "upsert_call", call });
+  invalidateCache();
 }
 
 export async function deleteCall(id: string): Promise<void> {
@@ -113,6 +133,7 @@ export async function deleteCall(id: string): Promise<void> {
     return;
   }
   await post({ action: "delete_call", id });
+  invalidateCache();
 }
 
 // ---- clients --------------------------------------------------------------
@@ -132,6 +153,7 @@ export async function upsertClient(client: NewClient & { id?: string }): Promise
     return;
   }
   await post({ action: "upsert_client", client });
+  invalidateCache();
 }
 
 export async function deleteClient(id: string): Promise<void> {
@@ -142,4 +164,5 @@ export async function deleteClient(id: string): Promise<void> {
     return;
   }
   await post({ action: "delete_client", id });
+  invalidateCache();
 }
