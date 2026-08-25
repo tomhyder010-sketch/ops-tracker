@@ -12,7 +12,7 @@ const STATUS_TONE: Record<ClientStatus, "green" | "yellow" | "muted" | "blue"> =
   "One Time": "blue",
 };
 
-const fmt$ = (n: number) => "$" + (n || 0).toLocaleString();
+const fmt$ = (n: number) => "$" + Math.round(n || 0).toLocaleString();
 
 function monthsActive(start: string, end: string | null): number {
   if (!start) return 0;
