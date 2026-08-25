@@ -82,7 +82,19 @@ export default function ClientsPage() {
     const refundedClients = clients.filter((c) => c.refunded);
     const refundRate = clients.length ? Math.round((refundedClients.length / clients.length) * 100) : null;
     const amountRefunded = clients.reduce((sum, c) => sum + (c.refund_amount || 0), 0);
-    return { activeCount: active.length, mrr, totalCashCollected, avgRetentionMonths, refundRate, amountRefunded };
+    // Actual LTV: total cash collected spread across every client, not the
+    // running total itself (that's just cumulative revenue, not a per-client
+    // figure).
+    const avgLtv = clients.length ? totalCashCollected / clients.length : 0;
+    return {
+      activeCount: active.length,
+      mrr,
+      totalCashCollected,
+      avgRetentionMonths,
+      refundRate,
+      amountRefunded,
+      avgLtv,
+    };
   }, [clients]);
 
   function openAdd() {
@@ -131,12 +143,13 @@ export default function ClientsPage() {
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Kpi label="Active Clients" value={kpis.activeCount} />
         <Kpi label="MRR" value={fmt$(kpis.mrr)} sub="active clients only" />
-        <Kpi label="Total Cash Collected" value={fmt$(kpis.totalCashCollected)} sub="= LTV to date" />
+        <Kpi label="Total Cash Collected" value={fmt$(kpis.totalCashCollected)} />
         <Kpi label="Avg. Retention" value={`${kpis.avgRetentionMonths.toFixed(1)} mo`} />
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Kpi label="Refund Rate" value={kpis.refundRate === null ? "—" : `${kpis.refundRate}%`} sub="of all clients" />
         <Kpi label="Amount Refunded" value={fmt$(kpis.amountRefunded)} />
+        <Kpi label="Avg. LTV" value={fmt$(kpis.avgLtv)} sub="cash collected / clients" />
       </div>
 
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card p-3">
