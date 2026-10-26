@@ -40,33 +40,21 @@ const addMonths = (iso: string, n: number) => {
   return d.toISOString().slice(0, 10);
 };
 
-// "cash" = each payment counted in full on the day it's billed (start date,
-// then every month/year after) — what Tom has actually paid. "spread" = the
-// same costs smoothed per day, for a like-for-like cost per booked call.
-type CostBasis = "cash" | "spread";
-
-// What a cost contributes over [from, to]: one-offs count on their date.
-function costOverRange(c: EmailCost, from: string, to: string, basis: CostBasis): number {
+// What Tom has actually paid in [from, to] (Tom 2026-10-26: cash, never spread
+// per day). Each payment counts in full on its billing date: the start date,
+// then every month (monthly) or year (yearly) after, until the end date.
+// One-offs count once on their date.
+function costOverRange(c: EmailCost, from: string, to: string): number {
   if (c.frequency === "one-off") return c.start_date >= from && c.start_date <= to ? c.amount : 0;
-  if (basis === "cash") {
-    const step = c.frequency === "yearly" ? 12 : 1;
-    const last = c.end_date && c.end_date < to ? c.end_date : to;
-    let total = 0;
-    for (let i = 0, d = c.start_date; d <= last && i < 600; i++, d = addMonths(c.start_date, i * step)) {
-      if (d >= from) total += c.amount;
-    }
-    return total;
+  const step = c.frequency === "yearly" ? 12 : 1;
+  const last = c.end_date && c.end_date < to ? c.end_date : to;
+  let total = 0;
+  for (let i = 0, d = c.start_date; d <= last && i < 600; i++, d = addMonths(c.start_date, i * step)) {
+    if (d >= from) total += c.amount;
   }
-  const start = c.start_date > from ? c.start_date : from;
-  const endBound = c.end_date || today();
-  const end = endBound < to ? endBound : to;
-  if (end < start) return 0;
-  const perDay = c.frequency === "yearly" ? c.amount / 365 : (c.amount * 12) / 365;
-  return perDay * dayCount(start, end);
+  return total;
 }
 
-const monthlyEquivalent = (c: EmailCost) =>
-  c.frequency === "monthly" ? c.amount : c.frequency === "yearly" ? c.amount / 12 : 0;
 
 type Totals = { sent: number; leads: number; replies: number; positive: number; booked: number };
 const emptyTotals = (): Totals => ({ sent: 0, leads: 0, replies: 0, positive: 0, booked: 0 });
@@ -96,21 +84,6 @@ export default function EmailPage() {
   const [costs, setCosts] = useState<EmailCost[]>([]);
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState<RangeId>("30");
-  const [basis, setBasis] = useState<CostBasis>(() => {
-    try {
-      return localStorage.getItem("ops_email_cost_basis") === "spread" ? "spread" : "cash";
-    } catch {
-      return "cash";
-    }
-  });
-  const chooseBasis = (b: CostBasis) => {
-    setBasis(b);
-    try {
-      localStorage.setItem("ops_email_cost_basis", b);
-    } catch {
-      /* per-browser convenience only */
-    }
-  };
   const [campaign, setCampaign] = useState("all");
   const [editing, setEditing] = useState<(NewEmailCost & { id?: string }) | null>(null);
   const [saving, setSaving] = useState(false);
@@ -159,10 +132,10 @@ export default function EmailPage() {
   );
 
   const totalCost = useMemo(() => {
-    const manual = costs.reduce((s, c) => s + costOverRange(c, from, to, basis), 0);
+    const manual = costs.reduce((s, c) => s + costOverRange(c, from, to), 0);
     const auto = autoCosts.filter((a) => a.date >= from && a.date <= to).reduce((s, a) => s + a.amount, 0);
     return { manual, auto, all: manual + auto };
-  }, [costs, autoCosts, from, to, basis]);
+  }, [costs, autoCosts, from, to]);
 
   const byCampaign = useMemo(() => {
     const m = new Map<string, Totals & { name: string }>();
@@ -250,9 +223,10 @@ export default function EmailPage() {
     }
   }
 
-  const monthlyRunRate = costs
-    .filter((c) => c.frequency !== "one-off" && (!c.end_date || c.end_date >= today()))
-    .reduce((s, c) => s + monthlyEquivalent(c), 0);
+  const monthlySubs = costs
+    .filter((c) => c.frequency === "monthly" && (!c.end_date || c.end_date >= today()))
+    .reduce((s, c) => s + c.amount, 0);
+  const paid30 = costs.reduce((s, c) => s + costOverRange(c, daysAgo(29), today()), 0);
   const apify30 = autoCosts.filter((a) => a.date >= daysAgo(29)).reduce((s, a) => s + a.amount, 0);
 
   if (loading) return <div className="text-sm text-muted-foreground">Loading cold email data…</div>;
@@ -265,16 +239,7 @@ export default function EmailPage() {
             {r.label}
           </Button>
         ))}
-        <Select
-          className="ml-auto w-48"
-          value={basis}
-          onChange={(e) => chooseBasis(e.target.value as CostBasis)}
-          aria-label="How costs are counted"
-        >
-          <option value="cash">Costs: cash paid</option>
-          <option value="spread">Costs: spread per day</option>
-        </Select>
-        <Select className="w-64" value={campaign} onChange={(e) => setCampaign(e.target.value)}>
+        <Select className="ml-auto w-64" value={campaign} onChange={(e) => setCampaign(e.target.value)}>
           <option value="all">All campaigns</option>
           {campaignNames.map(([id, name]) => (
             <option key={id} value={id}>
@@ -316,7 +281,7 @@ export default function EmailPage() {
           value={fmt$(shownCost)}
           sub={
             campaign === "all"
-              ? `${fmt$(totalCost.manual)} ${basis === "cash" ? "paid" : "spread"} + ${fmt$(totalCost.auto)} Apify`
+              ? `${fmt$(totalCost.manual)} paid + ${fmt$(totalCost.auto)} Apify`
               : "share by emails sent"
           }
         />
@@ -418,9 +383,9 @@ export default function EmailPage() {
         }
       >
         <div className="mb-3 grid grid-cols-2 gap-3 md:grid-cols-3">
-          <Kpi label="Monthly run-rate" value={fmt$(monthlyRunRate)} sub="recurring costs still running" />
+          <Kpi label="Paid, last 30 days" value={fmt$(paid30 + apify30)} sub={`${fmt$(paid30)} bills + ${fmt$(apify30)} Apify`} />
+          <Kpi label="Monthly subscriptions" value={fmt$(monthlySubs)} sub="charged again each month" />
           <Kpi label="Apify, last 30 days" value={fmt$(apify30)} sub="pulled automatically" />
-          <Kpi label="Total, last 30 days" value={fmt$(monthlyRunRate + apify30)} />
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
