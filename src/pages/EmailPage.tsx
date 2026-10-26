@@ -34,10 +34,29 @@ const RANGES = [
 ] as const;
 type RangeId = (typeof RANGES)[number]["id"];
 
-// What a cost contributes over [from, to]: recurring costs are spread per day
-// across the days they were running; one-offs count on their date.
-function costOverRange(c: EmailCost, from: string, to: string): number {
+const addMonths = (iso: string, n: number) => {
+  const d = new Date(iso + "T00:00:00Z");
+  d.setUTCMonth(d.getUTCMonth() + n);
+  return d.toISOString().slice(0, 10);
+};
+
+// "cash" = each payment counted in full on the day it's billed (start date,
+// then every month/year after) — what Tom has actually paid. "spread" = the
+// same costs smoothed per day, for a like-for-like cost per booked call.
+type CostBasis = "cash" | "spread";
+
+// What a cost contributes over [from, to]: one-offs count on their date.
+function costOverRange(c: EmailCost, from: string, to: string, basis: CostBasis): number {
   if (c.frequency === "one-off") return c.start_date >= from && c.start_date <= to ? c.amount : 0;
+  if (basis === "cash") {
+    const step = c.frequency === "yearly" ? 12 : 1;
+    const last = c.end_date && c.end_date < to ? c.end_date : to;
+    let total = 0;
+    for (let i = 0, d = c.start_date; d <= last && i < 600; i++, d = addMonths(c.start_date, i * step)) {
+      if (d >= from) total += c.amount;
+    }
+    return total;
+  }
   const start = c.start_date > from ? c.start_date : from;
   const endBound = c.end_date || today();
   const end = endBound < to ? endBound : to;
@@ -77,6 +96,21 @@ export default function EmailPage() {
   const [costs, setCosts] = useState<EmailCost[]>([]);
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState<RangeId>("30");
+  const [basis, setBasis] = useState<CostBasis>(() => {
+    try {
+      return localStorage.getItem("ops_email_cost_basis") === "spread" ? "spread" : "cash";
+    } catch {
+      return "cash";
+    }
+  });
+  const chooseBasis = (b: CostBasis) => {
+    setBasis(b);
+    try {
+      localStorage.setItem("ops_email_cost_basis", b);
+    } catch {
+      /* per-browser convenience only */
+    }
+  };
   const [campaign, setCampaign] = useState("all");
   const [editing, setEditing] = useState<(NewEmailCost & { id?: string }) | null>(null);
   const [saving, setSaving] = useState(false);
@@ -125,10 +159,10 @@ export default function EmailPage() {
   );
 
   const totalCost = useMemo(() => {
-    const manual = costs.reduce((s, c) => s + costOverRange(c, from, to), 0);
+    const manual = costs.reduce((s, c) => s + costOverRange(c, from, to, basis), 0);
     const auto = autoCosts.filter((a) => a.date >= from && a.date <= to).reduce((s, a) => s + a.amount, 0);
     return { manual, auto, all: manual + auto };
-  }, [costs, autoCosts, from, to]);
+  }, [costs, autoCosts, from, to, basis]);
 
   const byCampaign = useMemo(() => {
     const m = new Map<string, Totals & { name: string }>();
@@ -231,7 +265,16 @@ export default function EmailPage() {
             {r.label}
           </Button>
         ))}
-        <Select className="ml-auto w-64" value={campaign} onChange={(e) => setCampaign(e.target.value)}>
+        <Select
+          className="ml-auto w-48"
+          value={basis}
+          onChange={(e) => chooseBasis(e.target.value as CostBasis)}
+          aria-label="How costs are counted"
+        >
+          <option value="cash">Costs: cash paid</option>
+          <option value="spread">Costs: spread per day</option>
+        </Select>
+        <Select className="w-64" value={campaign} onChange={(e) => setCampaign(e.target.value)}>
           <option value="all">All campaigns</option>
           {campaignNames.map(([id, name]) => (
             <option key={id} value={id}>
@@ -271,7 +314,11 @@ export default function EmailPage() {
         <Kpi
           label="Cost"
           value={fmt$(shownCost)}
-          sub={campaign === "all" ? `${fmt$(totalCost.manual)} fixed + ${fmt$(totalCost.auto)} Apify` : "share by emails sent"}
+          sub={
+            campaign === "all"
+              ? `${fmt$(totalCost.manual)} ${basis === "cash" ? "paid" : "spread"} + ${fmt$(totalCost.auto)} Apify`
+              : "share by emails sent"
+          }
         />
         <Kpi label="Cost / booked call" value={fmt$(per(shownCost, shown.booked))} sub={`${fmt$(per(shownCost, shown.positive))} / positive · ${fmt$(per(shownCost, shown.leads))} / lead`} />
       </div>
