@@ -100,7 +100,16 @@ export default function EmailPage() {
     load();
   }, []);
 
-  const firstDate = useMemo(() => daily.reduce((m, d) => (d.date < m ? d.date : m), today()), [daily]);
+  // "All time" starts at the earliest of any send or any cost — set-up costs
+  // (domains, inboxes warming) are often paid before the first email goes out.
+  const firstDate = useMemo(
+    () =>
+      [...daily.map((d) => d.date), ...costs.map((c) => c.start_date), ...autoCosts.map((a) => a.date)].reduce(
+        (m, d) => (d && d < m ? d : m),
+        today()
+      ),
+    [daily, costs, autoCosts]
+  );
   const from = range === "all" ? firstDate : daysAgo(Number(range) - 1);
   const to = today();
 
