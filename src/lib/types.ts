@@ -165,3 +165,69 @@ export interface Client {
 }
 
 export type NewClient = Omit<Client, "id" | "created_at" | "updated_at">;
+
+// ---- Cold email (2026-10-26) ------------------------------------------------
+// EmailDaily / EmailCohorts / EmailAutoCosts are written each morning by the
+// pipeline's email_tracker_sync.py (Instantly + Apify). Positive/booked come
+// from Tom's Instantly statuses. EmailCost is Tom's own cost list.
+
+export interface EmailDaily {
+  id: string; // `${date}|${campaign_id}`
+  date: string; // YYYY-MM-DD
+  campaign_id: string;
+  campaign_name: string;
+  sent: number;
+  new_leads: number;
+  replies: number;
+  auto_replies: number;
+  positive: number;
+  booked: number;
+  updated_at: string;
+}
+
+export interface EmailCohort {
+  id: string;
+  week_start: string; // Monday of the week the leads were added
+  campaign_id: string;
+  campaign_name: string;
+  leads: number;
+  replied: number;
+  positive: number;
+  booked: number;
+  updated_at: string;
+}
+
+export interface EmailAutoCost {
+  id: string;
+  date: string;
+  source: string;
+  amount: number;
+  updated_at: string;
+}
+
+export const EMAIL_COST_FREQUENCIES = ["monthly", "yearly", "one-off"] as const;
+export type EmailCostFrequency = (typeof EMAIL_COST_FREQUENCIES)[number];
+
+export const EMAIL_COST_CATEGORIES = [
+  "Sending software",
+  "Inboxes",
+  "Domains",
+  "Lead data",
+  "Scraping",
+  "Other",
+] as const;
+
+export interface EmailCost {
+  id: string;
+  name: string;
+  category: string;
+  amount: number;
+  frequency: EmailCostFrequency;
+  start_date: string; // YYYY-MM-DD
+  end_date: string; // blank = still running
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type NewEmailCost = Omit<EmailCost, "id" | "created_at" | "updated_at">;

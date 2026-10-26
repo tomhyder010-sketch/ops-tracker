@@ -102,6 +102,57 @@ var AD_HEADERS = [
 ];
 var AD_NUMBER_FIELDS = CAMPAIGN_NUMBER_FIELDS;
 
+// ---- Cold email (2026-10-26) ---------------------------------------------
+// EmailDaily / EmailCohorts / EmailAutoCosts are written in full each morning
+// by Tom's pipeline (~/Systemised/pipeline/email_tracker_sync.py) from the
+// Instantly + Apify APIs — never hand-edit them, the next sync overwrites.
+// EmailCosts is Tom's own list of recurring/one-off costs, edited in the app.
+var EMAIL_DAILY_HEADERS = [
+  "id", "date", "campaign_id", "campaign_name", "sent", "new_leads",
+  "replies", "auto_replies", "positive", "booked", "updated_at"
+];
+var EMAIL_DAILY_NUMBER_FIELDS = ["sent", "new_leads", "replies", "auto_replies", "positive", "booked"];
+
+// One row per (week the lead was added) x campaign — the honest view of how a
+// batch of leads / a script performed once its replies have had time to land.
+var EMAIL_COHORT_HEADERS = [
+  "id", "week_start", "campaign_id", "campaign_name", "leads", "replied",
+  "positive", "booked", "updated_at"
+];
+var EMAIL_COHORT_NUMBER_FIELDS = ["leads", "replied", "positive", "booked"];
+
+// Costs measured automatically (Apify spend per day).
+var EMAIL_AUTO_COST_HEADERS = ["id", "date", "source", "amount", "updated_at"];
+var EMAIL_AUTO_COST_NUMBER_FIELDS = ["amount"];
+
+// frequency: "monthly" | "yearly" | "one-off". start_date/end_date bound when
+// a recurring cost applies (end blank = still running); a one-off lands on
+// start_date.
+var EMAIL_COST_HEADERS = [
+  "id", "name", "category", "amount", "frequency", "start_date", "end_date",
+  "notes", "created_at", "updated_at"
+];
+var EMAIL_COST_NUMBER_FIELDS = ["amount"];
+
+// Replaces every data row of `sheet` with `rows` (array of objects) in one
+// write — the sync sends complete history each run, so this is simpler and
+// far faster than row-by-row upserts.
+function replaceRows_(sheet, headers, rows) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow > 1) sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).clearContent();
+  if (!rows.length) return 0;
+  var now = new Date().toISOString();
+  var values = rows.map(function (r) {
+    return headers.map(function (h) {
+      if (h === "updated_at") return now;
+      var v = r[h];
+      return v == null ? "" : v;
+    });
+  });
+  sheet.getRange(2, 1, values.length, headers.length).setNumberFormat("@").setValues(values);
+  return values.length;
+}
+
 var META_AD_ACCOUNT_ID = "act_537574055821730"; // "Systemised Scaling" — not a secret, just an id
 
 function getSheet_(name, headers) {
@@ -270,6 +321,10 @@ function doGet(e) {
   var campaignsSheet = getSheet_("Campaigns", CAMPAIGN_HEADERS);
   var adsSheet = getSheet_("Ads", AD_HEADERS);
   var leadsSheet = getSheet_("Leads", LEAD_HEADERS);
+  var emailDailySheet = getSheet_("EmailDaily", EMAIL_DAILY_HEADERS);
+  var emailCohortSheet = getSheet_("EmailCohorts", EMAIL_COHORT_HEADERS);
+  var emailAutoCostSheet = getSheet_("EmailAutoCosts", EMAIL_AUTO_COST_HEADERS);
+  var emailCostSheet = getSheet_("EmailCosts", EMAIL_COST_HEADERS);
   return json_({
     ok: true,
     calls: readRows_(callsSheet, CALL_HEADERS, CALL_NUMBER_FIELDS, CALL_BOOLEAN_FIELDS),
@@ -277,6 +332,10 @@ function doGet(e) {
     campaigns: readRows_(campaignsSheet, CAMPAIGN_HEADERS, CAMPAIGN_NUMBER_FIELDS, []),
     ads: readRows_(adsSheet, AD_HEADERS, AD_NUMBER_FIELDS, []),
     leads: readRows_(leadsSheet, LEAD_HEADERS, LEAD_NUMBER_FIELDS, []),
+    emailDaily: readRows_(emailDailySheet, EMAIL_DAILY_HEADERS, EMAIL_DAILY_NUMBER_FIELDS, []),
+    emailCohorts: readRows_(emailCohortSheet, EMAIL_COHORT_HEADERS, EMAIL_COHORT_NUMBER_FIELDS, []),
+    emailAutoCosts: readRows_(emailAutoCostSheet, EMAIL_AUTO_COST_HEADERS, EMAIL_AUTO_COST_NUMBER_FIELDS, []),
+    emailCosts: readRows_(emailCostSheet, EMAIL_COST_HEADERS, EMAIL_COST_NUMBER_FIELDS, []),
   });
 }
 
@@ -763,6 +822,26 @@ function doPost(e) {
         }
       }
       return json_({ ok: false, error: "Ad not found: " + body.ad_id });
+    }
+
+    // Daily full refresh from the pipeline's email_tracker_sync.py.
+    if (body.action === "email_sync") {
+      return json_({
+        ok: true,
+        daily: replaceRows_(getSheet_("EmailDaily", EMAIL_DAILY_HEADERS), EMAIL_DAILY_HEADERS, body.daily || []),
+        cohorts: replaceRows_(getSheet_("EmailCohorts", EMAIL_COHORT_HEADERS), EMAIL_COHORT_HEADERS, body.cohorts || []),
+        auto_costs: replaceRows_(getSheet_("EmailAutoCosts", EMAIL_AUTO_COST_HEADERS), EMAIL_AUTO_COST_HEADERS, body.auto_costs || []),
+      });
+    }
+
+    if (body.action === "upsert_email_cost") {
+      var costSheet = getSheet_("EmailCosts", EMAIL_COST_HEADERS);
+      var savedCost = upsertRow_(costSheet, EMAIL_COST_HEADERS, EMAIL_COST_NUMBER_FIELDS, [], body.cost || {});
+      return json_({ ok: true, cost: savedCost });
+    }
+
+    if (body.action === "delete_email_cost") {
+      return json_(deleteRowById_(getSheet_("EmailCosts", EMAIL_COST_HEADERS), body.id));
     }
 
     return json_({ ok: false, error: "Unknown action: " + body.action });

@@ -1,18 +1,20 @@
 import { useEffect, useState } from "react";
-import { ClipboardList, Megaphone, PhoneCall, Users } from "lucide-react";
+import { ClipboardList, Mail, Megaphone, PhoneCall, Users } from "lucide-react";
 import { isConfigured } from "./lib/api";
 import CallsPage from "./pages/CallsPage";
 import ClientsPage from "./pages/ClientsPage";
 import CampaignsPage from "./pages/CampaignsPage";
 import LeadsPage from "./pages/LeadsPage";
+import EmailPage from "./pages/EmailPage";
 
-type Tab = "leads" | "calls" | "clients" | "campaigns";
+type Tab = "leads" | "calls" | "clients" | "campaigns" | "email";
 
 const TABS: { id: Tab; label: string; icon: typeof PhoneCall }[] = [
   { id: "leads", label: "Leads", icon: ClipboardList },
   { id: "calls", label: "Booked Calls", icon: PhoneCall },
   { id: "clients", label: "Clients", icon: Users },
   { id: "campaigns", label: "Ad Campaigns", icon: Megaphone },
+  { id: "email", label: "Cold Email", icon: Mail },
 ];
 
 export default function App() {
@@ -60,6 +62,7 @@ export default function App() {
         {tab === "calls" && <CallsPage />}
         {tab === "clients" && <ClientsPage />}
         {tab === "campaigns" && <CampaignsPage />}
+        {tab === "email" && <EmailPage />}
       </main>
     </div>
   );

@@ -1,4 +1,6 @@
-import type { Ad, Call, Campaign, Client, Lead, NewCall, NewClient } from "./types";
+import type {
+  Ad, Call, Campaign, Client, EmailAutoCost, EmailCohort, EmailCost, EmailDaily, Lead, NewCall, NewClient, NewEmailCost,
+} from "./types";
 
 // The Google Apps Script web-app URL (ends in /exec) — once you've deployed
 // apps-script/Code.gs inside your Google Sheet (see README.md), paste the
@@ -17,13 +19,18 @@ export const isConfigured = () => apiUrl() !== "";
 // Runs immediately with no setup, same as the SOP hub — everything lives in
 // this browser only until you connect the Sheet (see README.md).
 
-type LocalDb = { calls: Call[]; clients: Client[]; campaigns: Campaign[]; ads: Ad[]; leads: Lead[] };
+type LocalDb = {
+  calls: Call[]; clients: Client[]; campaigns: Campaign[]; ads: Ad[]; leads: Lead[];
+  emailDaily: EmailDaily[]; emailCohorts: EmailCohort[]; emailAutoCosts: EmailAutoCost[]; emailCosts: EmailCost[];
+};
+
+const EMPTY_EMAIL = { emailDaily: [], emailCohorts: [], emailAutoCosts: [], emailCosts: [] };
 
 const LOCAL_KEY = "ops_tracker_v1";
 
 function loadLocal(): LocalDb {
   const raw = localStorage.getItem(LOCAL_KEY);
-  if (!raw) return { calls: [], clients: [], campaigns: [], ads: [], leads: [] };
+  if (!raw) return { calls: [], clients: [], campaigns: [], ads: [], leads: [], ...EMPTY_EMAIL };
   try {
     const parsed = JSON.parse(raw);
     return {
@@ -32,9 +39,13 @@ function loadLocal(): LocalDb {
       campaigns: parsed.campaigns ?? [],
       ads: parsed.ads ?? [],
       leads: parsed.leads ?? [],
+      emailDaily: parsed.emailDaily ?? [],
+      emailCohorts: parsed.emailCohorts ?? [],
+      emailAutoCosts: parsed.emailAutoCosts ?? [],
+      emailCosts: parsed.emailCosts ?? [],
     };
   } catch {
-    return { calls: [], clients: [], campaigns: [], ads: [], leads: [] };
+    return { calls: [], clients: [], campaigns: [], ads: [], leads: [], ...EMPTY_EMAIL };
   }
 }
 
@@ -61,7 +72,7 @@ async function post(body: Record<string, unknown>): Promise<any> {
   return data;
 }
 
-export type AllData = { calls: Call[]; clients: Client[]; campaigns: Campaign[]; ads: Ad[]; leads: Lead[] };
+export type AllData = LocalDb;
 
 // Apps Script's own request latency is several seconds regardless of what
 // it's doing (auth + routing overhead, not our code) — that's fixed cost we
@@ -91,6 +102,10 @@ export async function fetchAll(): Promise<AllData> {
     campaigns: data.campaigns ?? [],
     ads: data.ads ?? [],
     leads: data.leads ?? [],
+    emailDaily: data.emailDaily ?? [],
+    emailCohorts: data.emailCohorts ?? [],
+    emailAutoCosts: data.emailAutoCosts ?? [],
+    emailCosts: data.emailCosts ?? [],
   };
   cache = { data: all, at: Date.now() };
   return all;
@@ -164,5 +179,34 @@ export async function deleteClient(id: string): Promise<void> {
     return;
   }
   await post({ action: "delete_client", id });
+  invalidateCache();
+}
+
+// ---- cold email costs -------------------------------------------------------
+
+export async function upsertEmailCost(cost: NewEmailCost & { id?: string }): Promise<void> {
+  if (!isConfigured()) {
+    const db = loadLocal();
+    if (cost.id) {
+      const i = db.emailCosts.findIndex((c) => c.id === cost.id);
+      if (i !== -1) db.emailCosts[i] = { ...db.emailCosts[i], ...cost, updated_at: nowIso() };
+    } else {
+      db.emailCosts.push({ ...cost, id: uid(), created_at: nowIso(), updated_at: nowIso() });
+    }
+    saveLocal(db);
+    return;
+  }
+  await post({ action: "upsert_email_cost", cost });
+  invalidateCache();
+}
+
+export async function deleteEmailCost(id: string): Promise<void> {
+  if (!isConfigured()) {
+    const db = loadLocal();
+    db.emailCosts = db.emailCosts.filter((c) => c.id !== id);
+    saveLocal(db);
+    return;
+  }
+  await post({ action: "delete_email_cost", id });
   invalidateCache();
 }
