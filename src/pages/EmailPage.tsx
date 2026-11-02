@@ -62,7 +62,8 @@ const emptyTotals = (): Totals => ({ sent: 0, leads: 0, replies: 0, positive: 0,
 function addDay(t: Totals, d: EmailDaily) {
   t.sent += d.sent;
   t.leads += d.new_leads;
-  t.replies += Math.max(0, d.replies - d.auto_replies);
+  // Instantly's unique_replies already excludes automatic replies (they're a separate field)
+  t.replies += d.replies;
   t.positive += d.positive;
   t.booked += d.booked;
 }
