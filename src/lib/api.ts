@@ -1,5 +1,5 @@
 import type {
-  Ad, Call, Campaign, Client, EmailAutoCost, EmailCohort, EmailCost, EmailDaily, Lead, NewCall, NewClient, NewEmailCost,
+  Ad, Call, Campaign, Client, EmailAutoCost, EmailClose, EmailCohort, EmailCost, EmailDaily, Lead, NewCall, NewClient, NewEmailClose, NewEmailCost,
 } from "./types";
 
 // The Google Apps Script web-app URL (ends in /exec) — once you've deployed
@@ -21,10 +21,10 @@ export const isConfigured = () => apiUrl() !== "";
 
 type LocalDb = {
   calls: Call[]; clients: Client[]; campaigns: Campaign[]; ads: Ad[]; leads: Lead[];
-  emailDaily: EmailDaily[]; emailCohorts: EmailCohort[]; emailAutoCosts: EmailAutoCost[]; emailCosts: EmailCost[];
+  emailDaily: EmailDaily[]; emailCohorts: EmailCohort[]; emailAutoCosts: EmailAutoCost[]; emailCosts: EmailCost[]; emailCloses: EmailClose[];
 };
 
-const EMPTY_EMAIL = { emailDaily: [], emailCohorts: [], emailAutoCosts: [], emailCosts: [] };
+const EMPTY_EMAIL = { emailDaily: [], emailCohorts: [], emailAutoCosts: [], emailCosts: [], emailCloses: [] };
 
 const LOCAL_KEY = "ops_tracker_v1";
 
@@ -43,6 +43,7 @@ function loadLocal(): LocalDb {
       emailCohorts: parsed.emailCohorts ?? [],
       emailAutoCosts: parsed.emailAutoCosts ?? [],
       emailCosts: parsed.emailCosts ?? [],
+      emailCloses: parsed.emailCloses ?? [],
     };
   } catch {
     return { calls: [], clients: [], campaigns: [], ads: [], leads: [], ...EMPTY_EMAIL };
@@ -106,6 +107,7 @@ export async function fetchAll(): Promise<AllData> {
     emailCohorts: data.emailCohorts ?? [],
     emailAutoCosts: data.emailAutoCosts ?? [],
     emailCosts: data.emailCosts ?? [],
+    emailCloses: data.emailCloses ?? [],
   };
   cache = { data: all, at: Date.now() };
   return all;
@@ -208,5 +210,34 @@ export async function deleteEmailCost(id: string): Promise<void> {
     return;
   }
   await post({ action: "delete_email_cost", id });
+  invalidateCache();
+}
+
+// ---- cold email closed deals ------------------------------------------------
+
+export async function upsertEmailClose(close: NewEmailClose & { id?: string }): Promise<void> {
+  if (!isConfigured()) {
+    const db = loadLocal();
+    if (close.id) {
+      const i = db.emailCloses.findIndex((c) => c.id === close.id);
+      if (i !== -1) db.emailCloses[i] = { ...db.emailCloses[i], ...close, updated_at: nowIso() };
+    } else {
+      db.emailCloses.push({ ...close, id: uid(), created_at: nowIso(), updated_at: nowIso() });
+    }
+    saveLocal(db);
+    return;
+  }
+  await post({ action: "upsert_email_close", close });
+  invalidateCache();
+}
+
+export async function deleteEmailClose(id: string): Promise<void> {
+  if (!isConfigured()) {
+    const db = loadLocal();
+    db.emailCloses = db.emailCloses.filter((c) => c.id !== id);
+    saveLocal(db);
+    return;
+  }
+  await post({ action: "delete_email_close", id });
   invalidateCache();
 }

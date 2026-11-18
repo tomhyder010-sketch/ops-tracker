@@ -134,6 +134,13 @@ var EMAIL_COST_HEADERS = [
 ];
 var EMAIL_COST_NUMBER_FIELDS = ["amount"];
 
+// Deals closed from cold email (Tom 2026-11-18), entered by hand in the app.
+var EMAIL_CLOSE_HEADERS = [
+  "id", "date", "company", "contact", "amount", "campaign_id", "campaign_name",
+  "notes", "created_at", "updated_at"
+];
+var EMAIL_CLOSE_NUMBER_FIELDS = ["amount"];
+
 // Replaces every data row of `sheet` with `rows` (array of objects) in one
 // write — the sync sends complete history each run, so this is simpler and
 // far faster than row-by-row upserts.
@@ -325,6 +332,7 @@ function doGet(e) {
   var emailCohortSheet = getSheet_("EmailCohorts", EMAIL_COHORT_HEADERS);
   var emailAutoCostSheet = getSheet_("EmailAutoCosts", EMAIL_AUTO_COST_HEADERS);
   var emailCostSheet = getSheet_("EmailCosts", EMAIL_COST_HEADERS);
+  var emailCloseSheet = getSheet_("EmailCloses", EMAIL_CLOSE_HEADERS);
   return json_({
     ok: true,
     calls: readRows_(callsSheet, CALL_HEADERS, CALL_NUMBER_FIELDS, CALL_BOOLEAN_FIELDS),
@@ -336,6 +344,7 @@ function doGet(e) {
     emailCohorts: readRows_(emailCohortSheet, EMAIL_COHORT_HEADERS, EMAIL_COHORT_NUMBER_FIELDS, []),
     emailAutoCosts: readRows_(emailAutoCostSheet, EMAIL_AUTO_COST_HEADERS, EMAIL_AUTO_COST_NUMBER_FIELDS, []),
     emailCosts: readRows_(emailCostSheet, EMAIL_COST_HEADERS, EMAIL_COST_NUMBER_FIELDS, []),
+    emailCloses: readRows_(emailCloseSheet, EMAIL_CLOSE_HEADERS, EMAIL_CLOSE_NUMBER_FIELDS, []),
   });
 }
 
@@ -842,6 +851,16 @@ function doPost(e) {
 
     if (body.action === "delete_email_cost") {
       return json_(deleteRowById_(getSheet_("EmailCosts", EMAIL_COST_HEADERS), body.id));
+    }
+
+    if (body.action === "upsert_email_close") {
+      var closeSheet = getSheet_("EmailCloses", EMAIL_CLOSE_HEADERS);
+      var savedClose = upsertRow_(closeSheet, EMAIL_CLOSE_HEADERS, EMAIL_CLOSE_NUMBER_FIELDS, [], body.close || {});
+      return json_({ ok: true, close: savedClose });
+    }
+
+    if (body.action === "delete_email_close") {
+      return json_(deleteRowById_(getSheet_("EmailCloses", EMAIL_CLOSE_HEADERS), body.id));
     }
 
     return json_({ ok: false, error: "Unknown action: " + body.action });

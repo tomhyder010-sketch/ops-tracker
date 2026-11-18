@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { AlertTriangle, Pencil, Plus, Trash2 } from "lucide-react";
-import { deleteEmailCost, fetchAll, upsertEmailCost } from "../lib/api";
+import { deleteEmailClose, deleteEmailCost, fetchAll, upsertEmailClose, upsertEmailCost } from "../lib/api";
 import {
   EMAIL_COST_CATEGORIES,
   EMAIL_COST_FREQUENCIES,
   type EmailAutoCost,
+  type EmailClose,
   type EmailCohort,
   type EmailCost,
   type EmailDaily,
+  type NewEmailClose,
   type NewEmailCost,
 } from "../lib/types";
 import { Badge, Button, Input, Kpi, Label, Modal, Panel, Select, Textarea } from "../components/ui";
@@ -78,6 +80,16 @@ const BLANK_COST: NewEmailCost = {
   notes: "",
 };
 
+const BLANK_CLOSE: NewEmailClose = {
+  date: today(),
+  company: "",
+  contact: "",
+  amount: 0,
+  campaign_id: "",
+  campaign_name: "",
+  notes: "",
+};
+
 export default function EmailPage() {
   const [daily, setDaily] = useState<EmailDaily[]>([]);
   const [cohorts, setCohorts] = useState<EmailCohort[]>([]);
@@ -88,6 +100,8 @@ export default function EmailPage() {
   const [campaign, setCampaign] = useState("all");
   const [editing, setEditing] = useState<(NewEmailCost & { id?: string }) | null>(null);
   const [saving, setSaving] = useState(false);
+  const [closes, setCloses] = useState<EmailClose[]>([]);
+  const [editingClose, setEditingClose] = useState<(NewEmailClose & { id?: string }) | null>(null);
 
   async function load() {
     setLoading(true);
@@ -97,6 +111,7 @@ export default function EmailPage() {
       setCohorts(data.emailCohorts);
       setAutoCosts(data.emailAutoCosts);
       setCosts(data.emailCosts);
+      setCloses(data.emailCloses);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load cold email data");
     } finally {
@@ -158,6 +173,17 @@ export default function EmailPage() {
     return t;
   }, [inRange, campaign]);
   const shownCost = campaign === "all" ? totalCost.all : share(shown.sent);
+
+  // Closed deals in the period. With a campaign picked, only deals tagged to it count.
+  const closesInRange = useMemo(
+    () => closes.filter((c) => c.date >= from && c.date <= to),
+    [closes, from, to]
+  );
+  const shownCloses = closesInRange.filter((c) => campaign === "all" || c.campaign_id === campaign);
+  const revenue = shownCloses.reduce((s, c) => s + c.amount, 0);
+  const revenueByCampaign = (id: string) =>
+    closesInRange.filter((c) => c.campaign_id === id).reduce((s, c) => s + c.amount, 0);
+  const roi = shownCost ? (revenue / shownCost).toFixed(1) + "x" : "—";
 
   const cohortRows = useMemo(() => {
     const m = new Map<string, { leads: number; replied: number; positive: number; booked: number }>();
@@ -224,6 +250,35 @@ export default function EmailPage() {
     }
   }
 
+  async function saveClose() {
+    if (!editingClose) return;
+    if (!editingClose.company.trim()) return toast.error("Add the company name");
+    if (!(editingClose.amount > 0)) return toast.error("Enter the deal value");
+    if (!editingClose.date) return toast.error("Pick the date it closed");
+    setSaving(true);
+    try {
+      await upsertEmailClose(editingClose);
+      setEditingClose(null);
+      toast.success("Deal saved");
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save deal");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removeClose(c: EmailClose) {
+    if (!confirm(`Delete the ${c.company} deal?`)) return;
+    try {
+      await deleteEmailClose(c.id);
+      toast.success("Deal deleted");
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete deal");
+    }
+  }
+
   const monthlySubs = costs
     .filter((c) => c.frequency === "monthly" && (!c.end_date || c.end_date >= today()))
     .reduce((s, c) => s + c.amount, 0);
@@ -272,7 +327,7 @@ export default function EmailPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Kpi label="Leads contacted" value={fmtN(shown.leads)} sub={`${fmtN(shown.sent)} emails sent`} />
         <Kpi label="Replies" value={fmtN(shown.replies)} sub={`${pct(shown.replies, shown.leads)} of leads`} />
         <Kpi label="Positive replies" value={fmtN(shown.positive)} sub={`${pct(shown.positive, shown.leads)} of leads`} />
@@ -287,6 +342,8 @@ export default function EmailPage() {
           }
         />
         <Kpi label="Cost / booked call" value={fmt$(per(shownCost, shown.booked))} sub={`${fmt$(per(shownCost, shown.positive))} / positive · ${fmt$(per(shownCost, shown.leads))} / lead`} />
+        <Kpi label="Closed revenue" value={fmt$(revenue)} sub={`${shownCloses.length} deal${shownCloses.length === 1 ? "" : "s"} · ${pct(shownCloses.length, shown.booked)} of booked`} />
+        <Kpi label="Return on cost" value={roi} sub={`${fmt$(per(shownCost, shownCloses.length))} cost per close`} />
       </div>
 
       <Panel title="By campaign">
@@ -302,7 +359,8 @@ export default function EmailPage() {
                 <th className="py-2 pr-4 text-right">Positive %</th>
                 <th className="py-2 pr-4 text-right">Booked</th>
                 <th className="py-2 pr-4 text-right">Cost</th>
-                <th className="py-2 text-right">Cost / booked</th>
+                <th className="py-2 pr-4 text-right">Cost / booked</th>
+                <th className="py-2 text-right">Revenue</th>
               </tr>
             </thead>
             <tbody>
@@ -316,12 +374,13 @@ export default function EmailPage() {
                   <td className="py-2 pr-4 text-right tabular-nums">{pct(t.positive, t.leads)}</td>
                   <td className="py-2 pr-4 text-right tabular-nums">{fmtN(t.booked)}</td>
                   <td className="py-2 pr-4 text-right tabular-nums">{fmt$(share(t.sent))}</td>
-                  <td className="py-2 text-right tabular-nums">{fmt$(per(share(t.sent), t.booked))}</td>
+                  <td className="py-2 pr-4 text-right tabular-nums">{fmt$(per(share(t.sent), t.booked))}</td>
+                  <td className="py-2 text-right tabular-nums">{revenueByCampaign(id) ? fmt$(revenueByCampaign(id)) : "—"}</td>
                 </tr>
               ))}
               {byCampaign.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="py-4 text-center text-muted-foreground">
+                  <td colSpan={10} className="py-4 text-center text-muted-foreground">
                     No sends in this period.
                   </td>
                 </tr>
@@ -370,6 +429,61 @@ export default function EmailPage() {
                   <td className="py-2 text-right tabular-nums">{r.leads ? ((r.booked / r.leads) * 1000).toFixed(1) : "—"}</td>
                 </tr>
               ))}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+
+      <Panel
+        title="Closed deals"
+        action={
+          <Button size="sm" onClick={() => setEditingClose({ ...BLANK_CLOSE })}>
+            <Plus size={14} /> Add close
+          </Button>
+        }
+      >
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="text-left text-xs uppercase text-muted-foreground">
+              <tr>
+                <th className="py-2 pr-4">Date</th>
+                <th className="py-2 pr-4">Company</th>
+                <th className="py-2 pr-4">Campaign</th>
+                <th className="py-2 pr-4 text-right">Value</th>
+                <th className="py-2" />
+              </tr>
+            </thead>
+            <tbody>
+              {[...closes]
+                .sort((a, b) => b.date.localeCompare(a.date))
+                .map((c) => (
+                  <tr key={c.id} className="border-t border-border">
+                    <td className="py-2 pr-4 tabular-nums">{c.date}</td>
+                    <td className="py-2 pr-4 font-medium">
+                      {c.company}
+                      {(c.contact || c.notes) && (
+                        <div className="text-xs text-muted-foreground">{[c.contact, c.notes].filter(Boolean).join(" · ")}</div>
+                      )}
+                    </td>
+                    <td className="py-2 pr-4">{c.campaign_name || <span className="text-muted-foreground">not tagged</span>}</td>
+                    <td className="py-2 pr-4 text-right tabular-nums">{fmt$(c.amount)}</td>
+                    <td className="py-2 text-right">
+                      <Button size="icon" variant="ghost" aria-label="Edit deal" onClick={() => setEditingClose({ ...c })}>
+                        <Pencil size={14} />
+                      </Button>
+                      <Button size="icon" variant="ghost" aria-label="Delete deal" onClick={() => removeClose(c)}>
+                        <Trash2 size={14} />
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              {closes.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="py-4 text-center text-muted-foreground">
+                    No closed deals yet. Add one when a cold email lead signs.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -436,6 +550,77 @@ export default function EmailPage() {
           </table>
         </div>
       </Panel>
+
+      <Modal
+        open={!!editingClose}
+        title={editingClose?.id ? "Edit closed deal" : "Add closed deal"}
+        onClose={() => setEditingClose(null)}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setEditingClose(null)}>
+              Cancel
+            </Button>
+            <Button onClick={saveClose} disabled={saving}>
+              {saving ? "Saving…" : "Save"}
+            </Button>
+          </>
+        }
+      >
+        {editingClose && (
+          <div className="flex flex-col gap-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1.5">
+                <Label>Company</Label>
+                <Input value={editingClose.company} onChange={(e) => setEditingClose({ ...editingClose, company: e.target.value })} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>Contact</Label>
+                <Input value={editingClose.contact} onChange={(e) => setEditingClose({ ...editingClose, contact: e.target.value })} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1.5">
+                <Label>Deal value ($)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={editingClose.amount || ""}
+                  onChange={(e) => setEditingClose({ ...editingClose, amount: Number(e.target.value) })}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>Date closed</Label>
+                <Input type="date" value={editingClose.date} onChange={(e) => setEditingClose({ ...editingClose, date: e.target.value })} />
+              </div>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label>Campaign it came from</Label>
+              <Select
+                value={editingClose.campaign_id}
+                onChange={(e) =>
+                  setEditingClose({
+                    ...editingClose,
+                    campaign_id: e.target.value,
+                    campaign_name: campaignNames.find(([id]) => id === e.target.value)?.[1] ?? "",
+                  })
+                }
+              >
+                <option value="">Not sure</option>
+                {campaignNames.map(([id, name]) => (
+                  <option key={id} value={id}>
+                    {name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label>Notes</Label>
+              <Textarea rows={2} value={editingClose.notes} onChange={(e) => setEditingClose({ ...editingClose, notes: e.target.value })} />
+            </div>
+          </div>
+        )}
+      </Modal>
 
       <Modal
         open={!!editing}

@@ -231,3 +231,20 @@ export interface EmailCost {
 }
 
 export type NewEmailCost = Omit<EmailCost, "id" | "created_at" | "updated_at">;
+
+// Deals closed from cold email (Tom 2026-11-18). Entered by hand on the Cold
+// Email tab; campaign is optional ("" = not sure which campaign it came from).
+export interface EmailClose {
+  id: string;
+  date: string; // YYYY-MM-DD the deal closed
+  company: string;
+  contact: string;
+  amount: number; // $ cash value of the deal
+  campaign_id: string;
+  campaign_name: string;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type NewEmailClose = Omit<EmailClose, "id" | "created_at" | "updated_at">;
